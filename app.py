@@ -132,3 +132,13 @@ if st.button("最適な両替プランを計算する", type="primary"):
         if len(add_list) > 0:
             st.write("※手元に残ったお金（小銭や細かいお札）は、金庫で以下の必要な硬貨に両替してレジに戻します。")
             for d in sorted(add_list.keys(), reverse=True):
+                qty = add_list[d]
+                unit = "札" if d >= 1000 else "玉"
+                st.write(f"・**{d}円{unit}** ➡ **{qty} 枚** レジに入れる")
+        else:
+            st.success("※両替は不要です！ステップ2まででレジ内は綺麗に5万円になります。")
+
+        # 最終確認用
+        with st.expander("調整後のレジ内内訳（合計50,000円）"):
+            for denom in DENOMS:
+                st.write(f"{denom}円: {optimal_layout[denom]}枚 ({denom * optimal_layout[denom]:,}円)")
