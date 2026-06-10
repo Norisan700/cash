@@ -58,7 +58,7 @@ def find_optimal_layout(current_counts):
 # --- Web画面の構築 ---
 st.set_page_config(page_title="レジ締めサポートツール", layout="centered")
 st.title("🪙 レジ締め・両替サポート")
-st.write("売上金袋に入れる中身、金庫との両替手順を1円単位で明記します。")
+st.write("「閉店30分前の両替」と「閉店後の回収」のタイムラインに沿って案内します。")
 
 # 入力セクション
 st.header("1. 現在のレジ内の状況入力")
@@ -112,79 +112,91 @@ if st.button("最適な両替プランを計算する", type="primary"):
         remove_list = {d: qty for d, qty in diff.items() if qty > 0}
         add_list = {d: abs(qty) for d, qty in diff.items() if qty < 0}
 
-        st.markdown("---")
-        st.subheader("💡 迷わずできる！レジ締め3ステップ手順")
-
-        # 1. 物理的に抜くフェーズ
-        st.markdown("### **ステップ 1：レジから以下のお金をすべて「抜く」**")
-        st.write(f"※これにより、手元に合計 **{sum(k * v for k, v in remove_list.items()):,} 円** が揃います。")
-        for d in sorted(remove_list.keys(), reverse=True):
-            qty = remove_list[d]
-            unit = "札" if d >= 1000 else "玉"
-            st.write(f"・**{d}円{unit}** ➡ **{qty} 枚** 抜く")
-
-        # 2. 売上袋に「一旦直接入れる分」を計算（Greedy法）
-        sales_bag_base = {}
-        remaining_target = expected_collect
-        for d in sorted(remove_list.keys(), reverse=True):
-            qty_available = remove_list[d]
-            qty_to_take = min(qty_available, remaining_target // d)
-            if qty_to_take > 0:
-                sales_bag_base[d] = qty_to_take
-            remaining_target -= d * qty_to_take
-
-        # 両替用の元手として手元に残る分
-        vault_handover = {}
-        for d, qty in remove_list.items():
-            qty_taken = sales_bag_base.get(d, 0)
-            qty_left = qty - qty_taken
-            if qty_left > 0:
-                vault_handover[d] = qty_left
-
-        v_handover = sum(d * qty for d, qty in vault_handover.items())
+        # 30分前の「等価両替用の元手」を計算
+        # 小さい金種から優先して両替の支払いにあてる（Greedy法）
+        sorted_rem = sorted(remove_list.items(), key=lambda x: x[0])
         v_add = sum(d * qty for d, qty in add_list.items())
-        change_from_vault = v_handover - v_add
+        
+        vault_handover = {}
+        current_handover_value = 0
+        
+        for d, qty_avail in sorted_rem:
+            if current_handover_value >= v_add:
+                break
+            needed_val = v_add - current_handover_value
+            qty_needed = (needed_val + d - 1) // d  # 切り上げ
+            qty_to_take = min(qty_avail, qty_needed)
+            
+            if qty_to_take > 0:
+                vault_handover[d] = qty_to_take
+                current_handover_value += d * qty_to_take
 
-        # ステップ2: 一旦キープ
-        st.markdown("### **ステップ 2：抜いたお金から、以下の分を「売上袋」に直接入れる**")
-        st.write(f"（現時点での袋への格納額：**{sum(k * v for k, v in sales_bag_base.items()):,} 円**）")
-        for d in sorted(sales_bag_base.keys(), reverse=True):
-            qty = sales_bag_base[d]
-            unit = "札" if d >= 1000 else "玉"
-            st.write(f"・**{d}円{unit}** ➡ **{qty} 枚** を売上袋に入れる")
+        # 金庫から戻ってくる「お釣り」の計算
+        change_from_vault = current_handover_value - v_add
 
-        # ステップ3: 金庫との両替
-        st.markdown("### **ステップ 3：手元に残ったお金を金庫へ持って行き、両替する**")
+        # 閉店後にレジから抜く残りの売上金リスト
+        final_remove_list = {}
+        for d, qty in remove_list.items():
+            qty_left = qty - vault_handover.get(d, 0)
+            if qty_left > 0:
+                final_remove_list[d] = qty_left
+
+        st.markdown("---")
+        
+        # ===================================================
+        # フェーズ1：閉店30分前（両替作業）
+        # ===================================================
+        st.subheader("⏰ Step 1：閉店30分前（両替・レジの準備）")
+        st.write("※営業中に、あらかじめレジの小銭バランスを整えておく作業です。")
+        
         if len(add_list) > 0:
             col_ex1, col_ex2 = st.columns(2)
             with col_ex1:
                 st.markdown("**👉 金庫へ持って行くもの（渡す）**")
-                st.write(f"（手元の残金合計：**{v_handover:,} 円**）")
+                st.write(f"（合計：**{current_handover_value:,} 円**）")
                 for d, qty in sorted(vault_handover.items(), reverse=True):
                     unit = "札" if d >= 1000 else "玉"
                     st.write(f"・{d}円{unit}: **{qty} 枚**")
             with col_ex2:
                 st.markdown("**👈 金庫から受け取るもの（貰う）**")
-                # レジに入れる用
-                st.write("**【レジに入れる用】**")
+                st.write("**【レジに入れる小銭】**")
                 for d, qty in sorted(add_list.items(), reverse=True):
                     unit = "札" if d >= 1000 else "玉"
                     st.write(f"・{d}円{unit}: **{qty} 枚**")
                 
-                # 売上袋に追加する用（お釣り）
                 if change_from_vault > 0:
-                    st.write("**【売上袋に追加する用（お釣り）】**")
-                    st.write(f"・端数のお釣りとして **{change_from_vault:,} 円分** の小銭を受け取る")
+                    st.write("**【お釣り（閉店後用にキープ）】**")
+                    st.write(f"・お釣りとして **{change_from_vault:,} 円分** の小銭を受け取る")
 
-            st.markdown("#### **🏁 最後の仕上げ**")
-            st.write("1. 金庫から貰った**【レジに入れる用】**の硬貨をすべてレジに戻します。")
+            st.markdown("**💡 30分前のアクション指示**")
+            st.write("1. 金庫から貰った**【レジに入れる小銭】**をすべてレジに戻します。")
             if change_from_vault > 0:
-                st.write(f"2. 金庫から貰った**【お釣り（{change_from_vault:,}円）】**を、ステップ2で売上袋に入れたお金と合流させます。")
-                st.write(f"　 ➡ これで売上袋の中身がぴったり目標額の **{expected_collect:,} 円** になり、レジ内は綺麗に50,000円になります！")
-            else:
-                st.write("2. これでレジ内は綺麗に50,000円（基準枚数）になります！")
+                st.write(f"2. 金庫から貰ったお釣り（**{change_from_vault:,}円**）は、レジ横のカップ等に入れて**閉店後まで保管**しておきます。")
         else:
-            st.success("※両替は不要です！ステップ2まででレジ内は綺麗に5万円になります。")
+            st.success("※このレジは小銭が十分に足りています！30分前の両替作業は不要です。")
+
+        st.markdown("---")
+
+        # ===================================================
+        # フェーズ2：閉店後（売上金回収・締め作業）
+        # ===================================================
+        st.subheader("🏁 Step 2：閉店後（売上回収・最終締め）")
+        st.write("※営業終了後、今日の売上金を袋にしまって完了させる作業です。")
+        
+        st.markdown("**👉 レジから抜くもの**")
+        for d in sorted(final_remove_list.keys(), reverse=True):
+            qty = final_remove_list[d]
+            unit = "札" if d >= 1000 else "玉"
+            st.write(f"・**{d}円{unit}** ➡ **{qty} 枚** 抜く")
+
+        st.markdown(f"**🛍️ 売上袋にしまう最終確認（合計: {expected_collect:,} 円）**")
+        if change_from_vault > 0:
+            st.write(f"・今レジから抜いたお金と、30分前にキープしておいた**お釣り（{change_from_vault:,}円）**を合流させます。")
+            st.write(f"　➡ 合計がぴったり **{expected_collect:,} 円** になっていることを確認して売上袋にしまいます。")
+        else:
+            st.write(f"・今レジから抜いたお金（計 **{expected_collect:,} 円**）をそのまま売上袋にしまいます。")
+            
+        st.success("これでレジ内はぴったり50,000円（翌日用の基準枚数）になりました。お疲れ様でした！")
 
         # 最終確認用
         with st.expander("調整後のレジ内内訳（合計50,000円）"):
