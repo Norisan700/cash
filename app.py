@@ -55,76 +55,10 @@ def find_optimal_layout(current_counts):
         return {DENOMS[i]: best_sol[i] for i in range(len(DENOMS))}
     return None
 
-def solve_exchange_and_sales(current_counts, optimal_layout, expected_collect):
-    """
-    レジから取り除くお金(removed_pool)を、
-    1. 金庫との両替用の元手 (exchange_out)
-    2. 売上回収袋に入れるお金 (sales_bag)
-    にきれいに分離する。
-    """
-    # 差分の整理
-    diff = {}
-    for d in DENOMS:
-        diff[d] = current_counts.get(d, 0) - optimal_layout[d]
-    # 10000円は全額回収対象
-    diff[10000] = current_counts.get(10000, 0)
-    
-    removed_pool = []  # レジから減らす金種 (denom, qty)
-    added_pool = []    # レジに足す金種 (denom, qty)
-    
-    for d, qty in diff.items():
-        if qty > 0:
-            removed_pool.append((d, qty))
-        elif qty < 0:
-            added_pool.append((d, abs(qty)))
-            
-    # 金庫から貰う必要のある総額
-    total_added_value = sum(d * qty for d, qty in added_pool)
-    
-    # 金庫に渡す用の組み合わせ（小さい金種を優先的に両替の元手にするために昇順ソート）
-    pool_sorted = sorted(removed_pool, key=lambda x: x[0])
-    
-    exchange_out = {}
-    
-    def search_exchange(idx, target, current_sol):
-        if target == 0:
-            return current_sol.copy()
-        if idx == len(pool_sorted):
-            return None
-        
-        denom, max_qty = pool_sorted[idx]
-        limit = min(max_qty, target // denom)
-        for qty in range(limit, -1, -1):
-            if qty > 0:
-                current_sol[denom] = qty
-            else:
-                if denom in current_sol:
-                    del current_sol[denom]
-            res = search_exchange(idx + 1, target - denom * qty, current_sol)
-            if res is not None:
-                return res
-        return None
-
-    # 等価両替ができる組み合わせを探索
-    exchange_sol = search_exchange(0, total_added_value, {})
-    
-    if exchange_sol is not None:
-        # 売上袋に入れる分を計算 (全体から両替用を引いたもの)
-        sales_bag = {}
-        for d, qty in removed_pool:
-            qty_for_exchange = exchange_sol.get(d, 0)
-            qty_for_sales = qty - qty_for_exchange
-            if qty_for_sales > 0:
-                sales_bag[d] = qty_for_sales
-        return exchange_sol, added_pool, sales_bag
-    else:
-        # ぴったり両替が成立しない場合はNone（フォールバック用）
-        return None, added_pool, None
-
 # --- Web画面の構築 ---
 st.set_page_config(page_title="レジ締めサポートツール", layout="centered")
 st.title("🪙 レジ締め・両替サポート")
-st.write("売上回収袋に入れるお金と、金庫と両替するお金を完全に分離して提案します。")
+st.write("迷わずできる「3ステップ手順」でレジ締めを案内します。")
 
 # 入力セクション
 st.header("1. 現在のレジ内の状況入力")
@@ -169,43 +103,32 @@ if st.button("最適な両替プランを計算する", type="primary"):
     if optimal_layout is None:
         st.error("エラー: 現在のレジ内の金額では、つり銭準備金を5万円（基準枚数内）に調整できません。両替用の小銭を金庫から補充してください。")
     else:
-        # 分離アルゴリズムの実行
-        exchange_sol, added_pool, sales_bag = solve_exchange_and_sales(current_counts, optimal_layout, expected_collect)
+        # 差分の計算
+        diff = {}
+        for d in DENOMS:
+            diff[d] = current_counts.get(d, 0) - optimal_layout[d]
+        diff[10000] = current_counts.get(10000, 0)
         
-        # 1. 売上回収袋に入れるアクション
-        st.subheader("🛍️ 【売上袋】に入れるもの（合計: " + f"{expected_collect:,}円）")
-        st.write("※これらはそのまま売上回収用の袋にしまってください。")
-        if sales_bag:
-            for d in sorted(sales_bag.keys(), reverse=True):
-                qty = sales_bag[d]
-                unit = "札" if d >= 1000 else "玉"
-                st.write(f"・**{d}円{unit}** ➡ **{qty} 枚** を売上袋へ")
-        else:
-            # 万が一きれいに分離できなかった場合のセーフガード
-            st.write("・レジ内の全額から50,000円を差し引いた額を回収してください。")
+        remove_list = {d: qty for d, qty in diff.items() if qty > 0}
+        add_list = {d: abs(qty) for d, qty in diff.items() if qty < 0}
 
-        # 2. 金庫との両替アクション
-        st.subheader("🔄 【金庫】と両替するもの")
-        st.write("※レジ内の金種バランスを整えるための『等価両替』です。損得はありません。")
-        
-        if exchange_sol and len(added_pool) > 0:
-            col_ex1, col_ex2 = st.columns(2)
-            with col_ex1:
-                st.markdown("**👉 金庫へ持って行くもの（渡す）**")
-                for d, qty in sorted(exchange_sol.items(), reverse=True):
-                    unit = "札" if d >= 1000 else "玉"
-                    st.write(f"・{d}円{unit}: **{qty} 枚**")
-            with col_ex2:
-                st.markdown("**👈 金庫から持って来るもの（貰う）**")
-                for d, qty in sorted(added_pool, key=lambda x: x[0], reverse=True):
-                    unit = "札" if d >= 1000 else "玉"
-                    st.write(f"・{d}円{unit}: **{qty} 枚**")
-        elif len(added_pool) == 0:
-            st.success("素晴らしい！金庫との両替は不要です。売上を抜くだけで綺麗に5万円になります。")
-        else:
-            st.warning("金庫との等価両替プランが自動計算できませんでした。レジ内の硬貨が不足しているため、手動で両替を行ってください。")
+        st.markdown("---")
+        st.subheader("💡 迷わずできる！レジ締め3ステップ手順")
 
-        # 最終確認用
-        with st.expander("調整後のレジ内内訳（合計50,000円）"):
-            for denom in DENOMS:
-                st.write(f"{denom}円: {optimal_layout[denom]}枚 ({denom * optimal_layout[denom]:,}円)")
+        # ステップ1: レジから抜く
+        st.markdown("### **ステップ 1：レジから以下のお金をすべて「抜く」**")
+        st.write("※これにより、手元に「売上金」と「両替用の元手」がすべて揃います。")
+        for d in sorted(remove_list.keys(), reverse=True):
+            qty = remove_list[d]
+            unit = "札" if d >= 1000 else "玉"
+            st.write(f"・**{d}円{unit}** ➡ **{qty} 枚** 抜く")
+
+        # ステップ2: 売上袋に入れる
+        st.markdown(f"### **ステップ 2：抜いたお金から、売上回収金「{expected_collect:,} 円」を売上袋に入れる**")
+        st.write(f"※お札を中心に、ちょうど **{expected_collect:,} 円分** を売上袋にしまってください。")
+
+        # ステップ3: 残りを金庫で両替してレジに入れる
+        st.markdown("### **ステップ 3：手元に残ったお金を金庫へ持っていき、以下に「両替」してレジに入れる**")
+        if len(add_list) > 0:
+            st.write("※手元に残ったお金（小銭や細かいお札）は、金庫で以下の必要な硬貨に両替してレジに戻します。")
+            for d in sorted(add_list.keys(), reverse=True):
