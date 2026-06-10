@@ -65,7 +65,7 @@ def solve_exchange_and_sales(current_counts, optimal_layout, expected_collect):
     # 差分の整理
     diff = {}
     for d in DENOMS:
-        diff[d] = current_counts.get(d, 0) - optimal_layout[denom]
+        diff[d] = current_counts.get(d, 0) - optimal_layout[d]
     # 10000円は全額回収対象
     diff[10000] = current_counts.get(10000, 0)
     
