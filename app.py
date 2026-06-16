@@ -6,7 +6,7 @@ RANGES = {
     5000: (3, 4),      # 3〜4枚
     1000: (20, 30),    # 20〜30枚
     500: (10, 20),     # 10〜20枚
-    100: (25, 35),     # 30枚程度
+    100: (25, 38),     # 30枚程度
     50: (10, 20),      # 10〜20枚
     10: (25, 35),      # 30枚程度
     5: (10, 20),       # 10〜20枚
@@ -61,7 +61,7 @@ st.title("🪙 レジ締め・両替サポート")
 st.write("「閉店30分前の両替」と「閉店後の回収」のタイムラインに沿って案内します。")
 
 # 入力セクション
-st.header("1. 現在のレジ内の状況入力")
+st.header("1. 現在の在高入力")
 col1, col2 = st.columns(2)
 
 current_counts = {}
@@ -93,7 +93,7 @@ if st.button("最適な両替プランを計算する", type="primary"):
     
     # 指標の表示
     m1, m2, m3 = st.columns(3)
-    m1.metric("現在のレジ内総額", f"{total_cash_now:,} 円")
+    m1.metric("現在の在高", f"{total_cash_now:,} 円")
     m2.metric("売上回収に回す額", f"{expected_collect:,} 円")
     m3.metric("レジ過不足", f"{discrepancy:,} 円", delta=discrepancy, delta_color="inverse")
 
